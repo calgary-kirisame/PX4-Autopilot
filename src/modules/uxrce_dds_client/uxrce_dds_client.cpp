@@ -185,11 +185,6 @@ bool UxrceddsClient::init()
 
 void UxrceddsClient::deinit()
 {
-	if (_fd >= 0) {
-		close(_fd);
-		_fd = -1;
-	}
-
 	if (_transport_serial) {
 		uxr_close_serial_transport(_transport_serial);
 		delete _transport_serial;
@@ -207,6 +202,7 @@ void UxrceddsClient::deinit()
 #endif // UXRCE_DDS_CLIENT_UDP
 
 	_comm = nullptr;
+	_fd = -1;
 }
 
 bool UxrceddsClient::setupSession(uxrSession *session)
@@ -389,10 +385,17 @@ void UxrceddsClient::deleteSession(uxrSession *session)
 	delete_repliers();
 
 	if (_session_created) {
-		uxr_delete_session_retries(session, _connected ? 1 : 0);
+		// During shutdown, avoid blocking retries (can hang stop if transport is unhealthy).
+		const uint8_t retries = (_connected && !should_exit()) ? 1 : 0;
+		uxr_delete_session_retries(session, retries);
 		_session_created = false;
 	}
 
+	if (_subs) {
+		_subs->reset();
+	}
+
+	_connected = false;
 	_last_payload_tx_rate = 0;
 	_timesync.reset_filter();
 }
@@ -654,17 +657,23 @@ void UxrceddsClient::run()
 			perf_begin(_loop_perf);
 			perf_count(_loop_interval_perf);
 
-			int orb_poll_timeout_ms = 10;
+			// Keep loop latency low without busy-looping:
+			// - Use a short uORB poll timeout (instead of 10ms)
+			// - If transport has pending data, don't block in uORB poll at all.
+			int orb_poll_timeout_ms = 1;
 
-			int bytes_available = 0;
+			if (_fd >= 0) {
+				px4_pollfd_struct_t transport_pollfd {};
+				transport_pollfd.fd = _fd;
+				transport_pollfd.events = POLLIN;
+				const int transport_poll = px4_poll(&transport_pollfd, 1, 0);
 
-			if (ioctl(_fd, FIONREAD, (unsigned long)&bytes_available) == OK) {
-				if (bytes_available > 10) {
+				if (transport_poll > 0) {
 					orb_poll_timeout_ms = 0;
 				}
 			}
 
-			/* Wait for topic updates for max 10 ms */
+			/* Wait for topic updates */
 			int poll = px4_poll(_subs->fds, (sizeof(_subs->fds) / sizeof(_subs->fds[0])), orb_poll_timeout_ms);
 
 			/* Handle the poll results */
@@ -683,8 +692,19 @@ void UxrceddsClient::run()
 				}
 			}
 
-			// run session with 0 timeout (non-blocking)
-			uxr_run_session_timeout(&session, 0);
+			// Run session with 0 timeout (non-blocking). Under high inbound traffic the socket RX buffer can
+			// overflow and starve the system; drain a small burst per loop to keep up.
+			for (int i = 0; i < 10; i++) {
+				uxr_run_session_timeout(&session, 0);
+
+				int fd_bytes_available = 0;
+
+				if ((_fd < 0)
+				    || (ioctl(_fd, FIONREAD, (unsigned long)&fd_bytes_available) != OK)
+				    || (fd_bytes_available <= 0)) {
+					break;
+				}
+			}
 
 			// check if there are available replies
 			process_replies();
@@ -717,6 +737,7 @@ void UxrceddsClient::run()
 			/* PONG_IN_SESSION_STATUS */
 			if (session.on_pong_flag == 1) {
 				_had_ping_reply = true;
+				session.on_pong_flag = 0;
 			}
 
 			// Calculate the payload tx/rx rate for connectivity monitoring
@@ -728,6 +749,7 @@ void UxrceddsClient::run()
 			perf_end(_loop_perf);
 		}
 
+		PX4_INFO("session disconnected, attempting to reconnect...");
 		deleteSession(&session);
 	}
 }
