@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - uxrce-v1.16.1-fix
+      - uxrce-v1.16.2-fix
 
 jobs:
   build:
