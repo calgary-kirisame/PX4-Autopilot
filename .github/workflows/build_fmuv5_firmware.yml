@@ -14,13 +14,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
+          fetch-tags: true
           submodules: recursive
+
+      - name: Fetch submodule tags
+        run: git submodule foreach --recursive 'git fetch --tags --force || true'
 
       - name: Install PX4 build dependencies
         run: ./Tools/setup/ubuntu.sh --no-sim-tools
 
       - name: Build FMUv5 firmware
-        run: make px4_fmu-v5_default
+        run: make -j$(nproc) px4_fmu-v5_default
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
