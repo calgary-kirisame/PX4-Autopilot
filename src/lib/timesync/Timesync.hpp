@@ -85,7 +85,9 @@ static constexpr uint32_t CONVERGENCE_WINDOW = 500;
 // of such events in a row will reset the filter. This usually happens only due to a time jump
 // on the remote system.
 // TODO : automatically determine these using ping statistics?
-static constexpr uint64_t MAX_RTT_SAMPLE = 10_ms;
+// Serial uXRCE-DDS links can have stable RTT slightly above 10 ms; allow those
+// samples to train the filter while still rejecting large scheduling outliers.
+static constexpr uint64_t MAX_RTT_SAMPLE = 50_ms;
 static constexpr uint64_t MAX_DEVIATION_SAMPLE = 100_ms;
 static constexpr uint32_t MAX_CONSECUTIVE_HIGH_RTT = 10;
 static constexpr uint32_t MAX_CONSECUTIVE_HIGH_DEVIATION = 10;
