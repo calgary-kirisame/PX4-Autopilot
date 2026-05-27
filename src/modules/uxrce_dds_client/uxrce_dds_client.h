@@ -196,6 +196,7 @@ private:
 	uint32_t _pong_flag_seen_count{0};
 	uint32_t _ping_missed_count_total{0};
 	uint32_t _ping_disconnect_count{0};
+	uint32_t _ping_tx_only_bypass_count{0};
 	int _last_fionread_before_ping{-1};
 	int _last_fionread_after_ping{-1};
 	uint32_t _last_num_payload_sent{0};

@@ -515,6 +515,9 @@ void UxrceddsClient::checkConnectivity(uxrSession *session)
 	}
 
 	const hrt_abstime now = hrt_absolute_time();
+	const int32_t tx_timeout = _param_uxrce_dds_tx_to.get();
+	const int32_t rx_timeout = _param_uxrce_dds_rx_to.get();
+	const bool tx_only_link_active = (_last_payload_tx_rate > 0) && (rx_timeout <= 0);
 
 	// Start ping and tx/rx rate monitoring, unless we're actively sending & receiving payloads successfully
 	if ((_last_payload_tx_rate > 0) && (_last_payload_rx_rate > 0)) {
@@ -578,13 +581,16 @@ void UxrceddsClient::checkConnectivity(uxrSession *session)
 		}
 
 		if (_num_pings_missed >= RUNTIME_PING_MISSES_ALLOWED) {
-			PX4_ERR("No ping response, disconnecting");
-			_ping_disconnect_count++;
-			_connected = false;
-		}
+			if (tx_only_link_active) {
+				_ping_tx_only_bypass_count++;
+				_num_pings_missed = 0;
 
-		int32_t tx_timeout = _param_uxrce_dds_tx_to.get();
-		int32_t rx_timeout = _param_uxrce_dds_rx_to.get();
+			} else {
+				PX4_ERR("No ping response, disconnecting");
+				_ping_disconnect_count++;
+				_connected = false;
+			}
+		}
 
 		if (tx_timeout > 0 && _num_tx_rate_zero >= tx_timeout) {
 			PX4_ERR("Payload TX rate zero for too long, disconnecting");
@@ -611,6 +617,7 @@ void UxrceddsClient::resetConnectivityCounters()
 	_pong_flag_seen_count = 0;
 	_ping_missed_count_total = 0;
 	_ping_disconnect_count = 0;
+	_ping_tx_only_bypass_count = 0;
 	_last_fionread_before_ping = -1;
 	_last_fionread_after_ping = -1;
 	_last_num_payload_sent = 0;
@@ -1026,6 +1033,7 @@ int UxrceddsClient::print_status()
 		 (unsigned long)_pong_flag_seen_count,
 		 (unsigned long)_ping_missed_count_total);
 	PX4_INFO("Ping current misses/disconnects: %i/%lu", _num_pings_missed, (unsigned long)_ping_disconnect_count);
+	PX4_INFO("Ping tx-only bypasses: %lu", (unsigned long)_ping_tx_only_bypass_count);
 	PX4_INFO("Ping last/max us: %llu/%llu",
 		 (unsigned long long)_last_ping_duration_us,
 		 (unsigned long long)_max_ping_duration_us);
