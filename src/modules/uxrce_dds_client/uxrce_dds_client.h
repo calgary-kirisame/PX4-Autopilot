@@ -185,10 +185,19 @@ private:
 
 	hrt_abstime _last_status_update;
 	hrt_abstime _last_ping;
+	hrt_abstime _last_ping_duration_us{0};
+	hrt_abstime _max_ping_duration_us{0};
 	bool _had_ping_reply{false};
 	int _num_pings_missed{0};
 	int32_t _num_tx_rate_zero{0};
 	int32_t _num_rx_rate_zero{0};
+	uint32_t _ping_sent_count{0};
+	uint32_t _ping_return_true_count{0};
+	uint32_t _pong_flag_seen_count{0};
+	uint32_t _ping_missed_count_total{0};
+	uint32_t _ping_disconnect_count{0};
+	int _last_fionread_before_ping{-1};
+	int _last_fionread_after_ping{-1};
 	uint32_t _last_num_payload_sent{0};
 	uint32_t _last_num_payload_received{0};
 	int _last_payload_tx_rate{}; ///< in B/s

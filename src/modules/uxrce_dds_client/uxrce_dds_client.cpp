@@ -51,6 +51,8 @@
 
 #define PARTICIPANT_XML_SIZE 512
 static constexpr uint8_t TIMESYNC_MAX_TIMEOUTS = 10;
+static constexpr int RUNTIME_PING_TIMEOUT_MS = 100;
+static constexpr int RUNTIME_PING_MISSES_ALLOWED = 10;
 
 using namespace time_literals;
 
@@ -532,25 +534,52 @@ void UxrceddsClient::checkConnectivity(uxrSession *session)
 				_num_rx_rate_zero++;
 			}
 
-			// Check ping
 			_last_ping = now;
+			_last_fionread_before_ping = -1;
+			_last_fionread_after_ping = -1;
 
-			if (_had_ping_reply) {
+			if (_fd >= 0) {
+				ioctl(_fd, FIONREAD, (unsigned long)&_last_fionread_before_ping);
+			}
+
+			_ping_sent_count++;
+			const hrt_abstime ping_start = hrt_absolute_time();
+			const bool ping_returned = uxr_ping_agent_session(session, RUNTIME_PING_TIMEOUT_MS, 1);
+			_last_ping_duration_us = hrt_elapsed_time(&ping_start);
+
+			if (_last_ping_duration_us > _max_ping_duration_us) {
+				_max_ping_duration_us = _last_ping_duration_us;
+			}
+
+			if (_fd >= 0) {
+				ioctl(_fd, FIONREAD, (unsigned long)&_last_fionread_after_ping);
+			}
+
+			if (ping_returned) {
+				_ping_return_true_count++;
+			}
+
+			const bool pong_flag_seen = _had_ping_reply || (session->on_pong_flag == 1);
+
+			if (session->on_pong_flag == 1) {
+				_pong_flag_seen_count++;
+				session->on_pong_flag = 0;
+			}
+
+			if (ping_returned || pong_flag_seen) {
 				_num_pings_missed = 0;
 
 			} else {
 				++_num_pings_missed;
+				++_ping_missed_count_total;
 			}
-
-			int timeout_ms = 1'000; // 1 second
-			uint8_t attempts = 1;
-			uxr_ping_agent_session(session, timeout_ms, attempts);
 
 			_had_ping_reply = false;
 		}
 
-		if (_num_pings_missed >= 3) {
+		if (_num_pings_missed >= RUNTIME_PING_MISSES_ALLOWED) {
 			PX4_ERR("No ping response, disconnecting");
+			_ping_disconnect_count++;
 			_connected = false;
 		}
 
@@ -575,6 +604,15 @@ void UxrceddsClient::resetConnectivityCounters()
 	_last_ping = hrt_absolute_time();
 	_had_ping_reply = false;
 	_num_pings_missed = 0;
+	_last_ping_duration_us = 0;
+	_max_ping_duration_us = 0;
+	_ping_sent_count = 0;
+	_ping_return_true_count = 0;
+	_pong_flag_seen_count = 0;
+	_ping_missed_count_total = 0;
+	_ping_disconnect_count = 0;
+	_last_fionread_before_ping = -1;
+	_last_fionread_after_ping = -1;
 	_last_num_payload_sent = 0;
 	_last_num_payload_received = 0;
 	_num_tx_rate_zero = 0;
@@ -738,6 +776,7 @@ void UxrceddsClient::run()
 			/* PONG_IN_SESSION_STATUS */
 			if (session.on_pong_flag == 1) {
 				_had_ping_reply = true;
+				_pong_flag_seen_count++;
 				session.on_pong_flag = 0;
 			}
 
@@ -981,6 +1020,16 @@ int UxrceddsClient::print_status()
 	}
 
 	PX4_INFO("timesync converged: %s", _timesync.sync_converged() ? "true" : "false");
+	PX4_INFO("Ping sent/ok/flag/missed: %lu/%lu/%lu/%lu",
+		 (unsigned long)_ping_sent_count,
+		 (unsigned long)_ping_return_true_count,
+		 (unsigned long)_pong_flag_seen_count,
+		 (unsigned long)_ping_missed_count_total);
+	PX4_INFO("Ping current misses/disconnects: %i/%lu", _num_pings_missed, (unsigned long)_ping_disconnect_count);
+	PX4_INFO("Ping last/max us: %llu/%llu",
+		 (unsigned long long)_last_ping_duration_us,
+		 (unsigned long long)_max_ping_duration_us);
+	PX4_INFO("FIONREAD before/after ping: %i/%i", _last_fionread_before_ping, _last_fionread_after_ping);
 
 	perf_print_counter(_loop_perf);
 	perf_print_counter(_loop_interval_perf);
