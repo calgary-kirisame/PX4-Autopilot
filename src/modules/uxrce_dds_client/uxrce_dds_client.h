@@ -185,6 +185,7 @@ private:
 
 	hrt_abstime _last_status_update;
 	hrt_abstime _last_ping;
+	hrt_abstime _last_agent_activity{0};
 	hrt_abstime _last_ping_duration_us{0};
 	hrt_abstime _max_ping_duration_us{0};
 	bool _had_ping_reply{false};
@@ -196,6 +197,7 @@ private:
 	uint32_t _pong_flag_seen_count{0};
 	uint32_t _ping_missed_count_total{0};
 	uint32_t _ping_disconnect_count{0};
+	uint32_t _ping_stale_disconnect_count{0};
 	uint32_t _ping_tx_only_bypass_count{0};
 	int _last_fionread_before_ping{-1};
 	int _last_fionread_after_ping{-1};

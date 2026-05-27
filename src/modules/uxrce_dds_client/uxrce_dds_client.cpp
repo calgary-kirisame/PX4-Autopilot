@@ -53,6 +53,7 @@
 static constexpr uint8_t TIMESYNC_MAX_TIMEOUTS = 10;
 static constexpr int RUNTIME_PING_TIMEOUT_MS = 100;
 static constexpr int RUNTIME_PING_MISSES_ALLOWED = 10;
+static constexpr hrt_abstime RUNTIME_AGENT_ACTIVITY_STALE_TIMEOUT_US = 30 * 1000 * 1000;
 
 using namespace time_literals;
 
@@ -140,10 +141,20 @@ bool UxrceddsClient::init()
 		uint8_t remote_addr = 0; // Identifier of the Agent in the connection
 		uint8_t local_addr = 1; // Identifier of the Client in the serial connection
 
-		if (_transport_serial
-		    && setBaudrate(fd, _baudrate)
-		    && uxr_init_serial_transport(_transport_serial, fd, remote_addr, local_addr)
-		   ) {
+		if (_transport_serial && setBaudrate(fd, _baudrate)) {
+			tcflush(fd, TCIOFLUSH);
+
+		} else {
+			PX4_ERR("init serial %s @ %d baud failed", _device, _baudrate);
+			close(fd);
+
+			delete _transport_serial;
+			_transport_serial = nullptr;
+
+			return false;
+		}
+
+		if (uxr_init_serial_transport(_transport_serial, fd, remote_addr, local_addr)) {
 			PX4_INFO("init serial %s @ %d baud", _device, _baudrate);
 
 			_comm = &_transport_serial->comm;
@@ -188,6 +199,10 @@ bool UxrceddsClient::init()
 void UxrceddsClient::deinit()
 {
 	if (_transport_serial) {
+		if (_fd >= 0) {
+			tcflush(_fd, TCIOFLUSH);
+		}
+
 		uxr_close_serial_transport(_transport_serial);
 		delete _transport_serial;
 		_transport_serial = nullptr;
@@ -524,6 +539,7 @@ void UxrceddsClient::checkConnectivity(uxrSession *session)
 		_connected = true;
 		_num_pings_missed = 0;
 		_last_ping = now;
+		_last_agent_activity = now;
 
 	} else {
 		if (hrt_elapsed_time(&_last_ping) > 1_s) {
@@ -571,6 +587,7 @@ void UxrceddsClient::checkConnectivity(uxrSession *session)
 
 			if (ping_returned || pong_flag_seen) {
 				_num_pings_missed = 0;
+				_last_agent_activity = now;
 
 			} else {
 				++_num_pings_missed;
@@ -581,12 +598,22 @@ void UxrceddsClient::checkConnectivity(uxrSession *session)
 		}
 
 		if (_num_pings_missed >= RUNTIME_PING_MISSES_ALLOWED) {
-			if (tx_only_link_active) {
+			const bool agent_activity_recent = hrt_elapsed_time(&_last_agent_activity)
+							 <= RUNTIME_AGENT_ACTIVITY_STALE_TIMEOUT_US;
+
+			if (tx_only_link_active && agent_activity_recent) {
 				_ping_tx_only_bypass_count++;
 				_num_pings_missed = 0;
 
 			} else {
-				PX4_ERR("No ping response, disconnecting");
+				if (tx_only_link_active) {
+					PX4_ERR("No recent agent response, disconnecting");
+					_ping_stale_disconnect_count++;
+
+				} else {
+					PX4_ERR("No ping response, disconnecting");
+				}
+
 				_ping_disconnect_count++;
 				_connected = false;
 			}
@@ -608,6 +635,7 @@ void UxrceddsClient::resetConnectivityCounters()
 {
 	_last_status_update = hrt_absolute_time();
 	_last_ping = hrt_absolute_time();
+	_last_agent_activity = _last_ping;
 	_had_ping_reply = false;
 	_num_pings_missed = 0;
 	_last_ping_duration_us = 0;
@@ -617,6 +645,7 @@ void UxrceddsClient::resetConnectivityCounters()
 	_pong_flag_seen_count = 0;
 	_ping_missed_count_total = 0;
 	_ping_disconnect_count = 0;
+	_ping_stale_disconnect_count = 0;
 	_ping_tx_only_bypass_count = 0;
 	_last_fionread_before_ping = -1;
 	_last_fionread_after_ping = -1;
@@ -784,6 +813,7 @@ void UxrceddsClient::run()
 			if (session.on_pong_flag == 1) {
 				_had_ping_reply = true;
 				_pong_flag_seen_count++;
+				_last_agent_activity = hrt_absolute_time();
 				session.on_pong_flag = 0;
 			}
 
@@ -1033,7 +1063,12 @@ int UxrceddsClient::print_status()
 		 (unsigned long)_pong_flag_seen_count,
 		 (unsigned long)_ping_missed_count_total);
 	PX4_INFO("Ping current misses/disconnects: %i/%lu", _num_pings_missed, (unsigned long)_ping_disconnect_count);
-	PX4_INFO("Ping tx-only bypasses: %lu", (unsigned long)_ping_tx_only_bypass_count);
+	PX4_INFO("Ping tx-only bypass/stale disconnects: %lu/%lu",
+		 (unsigned long)_ping_tx_only_bypass_count,
+		 (unsigned long)_ping_stale_disconnect_count);
+	PX4_INFO("Agent activity age/stale us: %llu/%llu",
+		 (unsigned long long)hrt_elapsed_time(&_last_agent_activity),
+		 (unsigned long long)RUNTIME_AGENT_ACTIVITY_STALE_TIMEOUT_US);
 	PX4_INFO("Ping last/max us: %llu/%llu",
 		 (unsigned long long)_last_ping_duration_us,
 		 (unsigned long long)_max_ping_duration_us);
