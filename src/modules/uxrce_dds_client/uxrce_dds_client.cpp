@@ -54,6 +54,8 @@ static constexpr uint8_t TIMESYNC_MAX_TIMEOUTS = 10;
 static constexpr int RUNTIME_PING_TIMEOUT_MS = 100;
 static constexpr int RUNTIME_PING_MISSES_ALLOWED = 10;
 static constexpr hrt_abstime RUNTIME_AGENT_ACTIVITY_STALE_TIMEOUT_US = 30 * 1000 * 1000;
+static constexpr int SETUP_PING_TIMEOUT_MS = 100;
+static constexpr int SETUP_PING_ATTEMPTS = 10;
 
 using namespace time_literals;
 
@@ -156,6 +158,7 @@ bool UxrceddsClient::init()
 
 		if (uxr_init_serial_transport(_transport_serial, fd, remote_addr, local_addr)) {
 			PX4_INFO("init serial %s @ %d baud", _device, _baudrate);
+			_serial_reopen_count++;
 
 			_comm = &_transport_serial->comm;
 			_fd = fd;
@@ -229,13 +232,22 @@ bool UxrceddsClient::setupSession(uxrSession *session)
 
 	bool got_response = false;
 
-	while (!should_exit() && !got_response) {
+	for (int attempt = 0; !should_exit() && attempt < SETUP_PING_ATTEMPTS; ++attempt) {
 		// Sending ping without initing a XRCE session
-		got_response = uxr_ping_agent_attempts(_comm, 1000, 1);
+		_setup_ping_attempt_count++;
+		const hrt_abstime ping_start = hrt_absolute_time();
+		got_response = uxr_ping_agent_attempts(_comm, SETUP_PING_TIMEOUT_MS, 1);
+		_last_setup_ping_duration_us = hrt_elapsed_time(&ping_start);
+
+		if (got_response) {
+			break;
+		}
+
+		_setup_ping_fail_count++;
 	}
 
 	if (!got_response) {
-		PX4_ERR("got no ping from agent");
+		PX4_WARN("got no ping from agent during setup");
 		return false;
 	}
 
@@ -692,7 +704,6 @@ void UxrceddsClient::run()
 {
 	_subs = new SendTopicsSubs();
 	_pubs = new RcvTopicsPubs();
-	uxrSession session;
 
 	if (!_subs || !_pubs) {
 		PX4_ERR("alloc failed");
@@ -700,8 +711,13 @@ void UxrceddsClient::run()
 	}
 
 	while (!should_exit()) {
+		uxrSession session{};
+
 		while (!should_exit()) {
+			session = {};
+
 			if (!init()) {
+				deinit();
 				px4_usleep(1'000'000);
 				PX4_ERR("init failed, will retry now");
 				continue;
@@ -709,6 +725,7 @@ void UxrceddsClient::run()
 
 			if (!setupSession(&session)) {
 				deleteSession(&session);
+				deinit();
 				px4_usleep(1'000'000);
 				PX4_ERR("session setup failed, will retry now");
 				continue;
@@ -720,6 +737,8 @@ void UxrceddsClient::run()
 		}
 
 		if (should_exit()) {
+			deleteSession(&session);
+			deinit();
 			return;
 		}
 
@@ -828,6 +847,7 @@ void UxrceddsClient::run()
 
 		PX4_INFO("session disconnected, attempting to reconnect...");
 		deleteSession(&session);
+		deinit();
 	}
 }
 
@@ -1069,6 +1089,12 @@ int UxrceddsClient::print_status()
 	PX4_INFO("Agent activity age/stale us: %llu/%llu",
 		 (unsigned long long)hrt_elapsed_time(&_last_agent_activity),
 		 (unsigned long long)RUNTIME_AGENT_ACTIVITY_STALE_TIMEOUT_US);
+	PX4_INFO("Setup ping attempts/fails: %lu/%lu",
+		 (unsigned long)_setup_ping_attempt_count,
+		 (unsigned long)_setup_ping_fail_count);
+	PX4_INFO("Setup last ping us/serial reopens: %llu/%lu",
+		 (unsigned long long)_last_setup_ping_duration_us,
+		 (unsigned long)_serial_reopen_count);
 	PX4_INFO("Ping last/max us: %llu/%llu",
 		 (unsigned long long)_last_ping_duration_us,
 		 (unsigned long long)_max_ping_duration_us);

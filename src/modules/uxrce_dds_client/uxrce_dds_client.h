@@ -199,6 +199,10 @@ private:
 	uint32_t _ping_disconnect_count{0};
 	uint32_t _ping_stale_disconnect_count{0};
 	uint32_t _ping_tx_only_bypass_count{0};
+	uint32_t _setup_ping_attempt_count{0};
+	uint32_t _setup_ping_fail_count{0};
+	uint32_t _serial_reopen_count{0};
+	hrt_abstime _last_setup_ping_duration_us{0};
 	int _last_fionread_before_ping{-1};
 	int _last_fionread_after_ping{-1};
 	uint32_t _last_num_payload_sent{0};
