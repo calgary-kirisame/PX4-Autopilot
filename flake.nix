@@ -41,14 +41,21 @@
               pkgs.ninja
               pkgs.gnumake
               pkgs.git
+              pkgs.gst_all_1.gstreamer
+              pkgs.gst_all_1.gst-plugins-base
               pkgs.pkg-config
+              pkgs.procps
               pkgs.python3
+              pkgs.opencv
               pkgs.uv
               gzEnv
             ];
 
+            # unforunately, ogre2 refuses to work in wayland! if you must avoid xwayland, use the ogre1 renderer
             shellHook = ''
               export PX4_VENV="$PWD/.px4-venv"
+              export QT_QPA_PLATFORM=xcb
+
               if [ ! -e "$PX4_VENV/bin/activate" ]; then
                 echo "[px4-sitl] bootstrapping python build deps -> $PX4_VENV"
                 uv venv "$PX4_VENV"
@@ -59,6 +66,7 @@
 
               echo ""
               echo "px4-sitl shell  (gz Harmonic via ros-gz vendor, pinned to mission10's overlay rev)"
+              echo "  Qt platform:          $QT_QPA_PLATFORM  (keeps Ogre2 stable on Wayland sessions)"
               echo "  headless SITL:        make px4_sitl gz_x500"
               echo "  connect to standalone gz (mission10 launches gz, PX4 attaches):"
               echo "                        PX4_GZ_STANDALONE=1 make px4_sitl gz_x500"

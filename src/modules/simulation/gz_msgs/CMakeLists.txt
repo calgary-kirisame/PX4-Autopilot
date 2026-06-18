@@ -23,6 +23,7 @@ if (Protobuf_FOUND)
             ${CMAKE_CURRENT_BINARY_DIR}
             ${Protobuf_INCLUDE_DIRS}
     )
+    target_compile_features(px4_gz_msgs PUBLIC cxx_std_17)
     target_link_libraries(px4_gz_msgs PUBLIC ${PROTOBUF_LIBRARIES})
     if (Protobuf_VERSION VERSION_LESS "3.8")
         target_compile_options(px4_gz_msgs PRIVATE -Wno-error=float-equal)
