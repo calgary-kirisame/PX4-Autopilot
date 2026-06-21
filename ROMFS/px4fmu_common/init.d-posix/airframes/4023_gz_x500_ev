@@ -18,3 +18,13 @@ param set-default EKF2_EV_CTRL 15
 param set-default EKF2_HGT_REF 3
 param set-default EKF2_GPS_CTRL 4
 param set-default EKF2_EV_DELAY 5
+
+# Companion/offboard operation does not require RC or GCS while OFFBOARD is
+# the intended mode; offboard setpoint loss remains handled separately.
+param set-default COM_DLL_EXCEPT 4
+param set-default COM_RCL_EXCEPT 4
+
+# No MAVLink GCS in this XRCE-DDS-only setup, so disable the GCS-link-loss
+# failsafe action. COM_DLL_EXCEPT only excepts OFFBOARD; without this the
+# failsafe fires (action RTL) the moment we hand off OFFBOARD -> AUTO.RTL.
+param set-default NAV_DLL_ACT 0
