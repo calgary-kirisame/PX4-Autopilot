@@ -51,7 +51,6 @@
 
 #define PARTICIPANT_XML_SIZE 512
 static constexpr uint8_t TIMESYNC_MAX_TIMEOUTS = 10;
-static constexpr int RUNTIME_PING_TIMEOUT_MS = 100;
 static constexpr int RUNTIME_PING_MISSES_ALLOWED = 10;
 static constexpr hrt_abstime RUNTIME_AGENT_ACTIVITY_STALE_TIMEOUT_US = 30 * 1000 * 1000;
 static constexpr int SETUP_PING_TIMEOUT_MS = 100;
@@ -575,7 +574,18 @@ void UxrceddsClient::checkConnectivity(uxrSession *session)
 
 			_ping_sent_count++;
 			const hrt_abstime ping_start = hrt_absolute_time();
-			const bool ping_returned = uxr_ping_agent_session(session, RUNTIME_PING_TIMEOUT_MS, 1);
+			// Non-blocking ping (timeout 0): emit the GET_INFO request and return
+			// immediately. The agent's pong is picked up asynchronously by the
+			// uxr_run_session_timeout() RX drain in run(), which sets
+			// session.on_pong_flag -> _had_ping_reply, consumed as `pong_flag_seen`
+			// below. A blocking ping stalled the whole main loop for the full
+			// timeout every second whenever RX payload was absent (our send-only
+			// steady state), collapsing the sensor_combined publish rate
+			// (uORB 222 Hz -> ~93 Hz delivered on the bench). `ping_returned` is
+			// kept for diagnostics but is not a reliable liveness signal on this
+			// serial link (measured ~63 true vs ~364 pong flags); liveness rides on
+			// pong_flag_seen. See PX4#25873 / TheLukaDragar c98eeb7e.
+			const bool ping_returned = uxr_ping_agent_session(session, 0, 1);
 			_last_ping_duration_us = hrt_elapsed_time(&ping_start);
 
 			if (_last_ping_duration_us > _max_ping_duration_us) {
