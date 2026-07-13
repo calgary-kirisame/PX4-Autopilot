@@ -58,11 +58,16 @@
 
               if [ ! -e "$PX4_VENV/bin/activate" ]; then
                 echo "[px4-sitl] bootstrapping python build deps -> $PX4_VENV"
-                uv venv "$PX4_VENV"
+                # pymavlink (in requirements.txt) fails to build on >=3.12; pin
+                uv venv --python 3.11 "$PX4_VENV"
                 uv pip install --python "$PX4_VENV/bin/python" -r Tools/setup/requirements.txt
               fi
               # shellcheck disable=SC1091
               source "$PX4_VENV/bin/activate"
+              # when nested inside the mission10 ros shell, its CMAKE_PREFIX_PATH
+              # outranks PATH in find_program and cmake picks the ros python
+              # (no kconfiglib); pin the interpreter explicitly
+              export CMAKE_ARGS="-DPYTHON_EXECUTABLE=$PX4_VENV/bin/python3''${CMAKE_ARGS:+ $CMAKE_ARGS}"
 
               echo ""
               echo "px4-sitl shell  (gz Harmonic via ros-gz vendor, pinned to mission10's overlay rev)"
