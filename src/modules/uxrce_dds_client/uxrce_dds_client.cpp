@@ -52,6 +52,10 @@
 static constexpr char NAMESPACE_PREFIX[] = "uav_";
 #define PARTICIPANT_XML_SIZE 512
 static constexpr uint8_t TIMESYNC_MAX_TIMEOUTS = 10;
+static constexpr int RUNTIME_PING_MISSES_ALLOWED = 10;
+static constexpr hrt_abstime RUNTIME_AGENT_ACTIVITY_STALE_TIMEOUT_US = 30 * 1000 * 1000;
+static constexpr int SETUP_PING_TIMEOUT_MS = 100;
+static constexpr int SETUP_PING_ATTEMPTS = 10;
 
 using namespace time_literals;
 
@@ -146,11 +150,22 @@ bool UxrceddsClient::init()
 		uint8_t remote_addr = 0; // Identifier of the Agent in the connection
 		uint8_t local_addr = 1; // Identifier of the Client in the serial connection
 
-		if (_transport_serial
-		    && setBaudrate(fd, _baudrate)
-		    && uxr_init_serial_transport(_transport_serial, fd, remote_addr, local_addr)
-		   ) {
+		if (_transport_serial && setBaudrate(fd, _baudrate)) {
+			tcflush(fd, TCIOFLUSH);
+
+		} else {
+			PX4_ERR("init serial %s @ %d baud failed", _device, _baudrate);
+			close(fd);
+
+			delete _transport_serial;
+			_transport_serial = nullptr;
+
+			return false;
+		}
+
+		if (uxr_init_serial_transport(_transport_serial, fd, remote_addr, local_addr)) {
 			PX4_INFO("init serial %s @ %d baud", _device, _baudrate);
+			_serial_reopen_count++;
 
 			_comm = &_transport_serial->comm;
 			_fd = fd;
@@ -196,6 +211,10 @@ bool UxrceddsClient::init()
 void UxrceddsClient::deinit()
 {
 	if (_transport_serial) {
+		if (_fd >= 0) {
+			tcflush(_fd, TCIOFLUSH);
+		}
+
 		uxr_close_serial_transport(_transport_serial);
 		delete _transport_serial;
 		_transport_serial = nullptr;
@@ -222,13 +241,22 @@ bool UxrceddsClient::setupSession(uxrSession *session)
 
 	bool got_response = false;
 
-	while (!should_exit() && !got_response) {
+	for (int attempt = 0; !should_exit() && attempt < SETUP_PING_ATTEMPTS; ++attempt) {
 		// Sending ping without initing a XRCE session
-		got_response = uxr_ping_agent_attempts(_comm, 1000, 1);
+		_setup_ping_attempt_count++;
+		const hrt_abstime ping_start = hrt_absolute_time();
+		got_response = uxr_ping_agent_attempts(_comm, SETUP_PING_TIMEOUT_MS, 1);
+		_last_setup_ping_duration_us = hrt_elapsed_time(&ping_start);
+
+		if (got_response) {
+			break;
+		}
+
+		_setup_ping_fail_count++;
 	}
 
 	if (!got_response) {
-		PX4_ERR("got no ping from agent");
+		PX4_WARN("got no ping from agent during setup");
 		return false;
 	}
 
@@ -372,6 +400,10 @@ bool UxrceddsClient::setupSession(uxrSession *session)
 		return false;
 	}
 
+	// init() subscribes all uORB inputs even when an entity creation fails, so
+	// teardown must reset them after this point (but never before it).
+	_subs_initialized = true;
+
 	if (!_subs->init(session, _reliable_out, reliable_in, best_effort_in, _participant_id, _client_namespace)) {
 		PX4_ERR("subs init failed");
 		return false;
@@ -401,8 +433,9 @@ void UxrceddsClient::deleteSession(uxrSession *session)
 		_session_created = false;
 	}
 
-	if (_subs) {
+	if (_subs && _subs_initialized) {
 		_subs->reset();
+		_subs_initialized = false;
 	}
 
 	_connected = false;
@@ -523,12 +556,16 @@ void UxrceddsClient::checkConnectivity(uxrSession *session)
 	}
 
 	const hrt_abstime now = hrt_absolute_time();
+	const int32_t tx_timeout = _param_uxrce_dds_tx_to.get();
+	const int32_t rx_timeout = _param_uxrce_dds_rx_to.get();
+	const bool tx_only_link_active = (_last_payload_tx_rate > 0) && (rx_timeout <= 0);
 
 	// Start ping and tx/rx rate monitoring, unless we're actively sending & receiving payloads successfully
 	if ((_last_payload_tx_rate > 0) && (_last_payload_rx_rate > 0)) {
 		_connected = true;
 		_num_pings_missed = 0;
 		_last_ping = now;
+		_last_agent_activity = now;
 
 	} else {
 		if (hrt_elapsed_time(&_last_ping) > 1_s) {
@@ -542,30 +579,62 @@ void UxrceddsClient::checkConnectivity(uxrSession *session)
 				_num_rx_rate_zero++;
 			}
 
-			// Check ping
 			_last_ping = now;
+			_ping_sent_count++;
+			const hrt_abstime ping_start = hrt_absolute_time();
+			// A zero-timeout ping emits GET_INFO without stalling the main loop.
+			// Its asynchronous pong is consumed by the RX drain in run().
+			const bool ping_returned = uxr_ping_agent_session(session, 0, 1);
+			_last_ping_duration_us = hrt_elapsed_time(&ping_start);
 
-			if (_had_ping_reply) {
+			if (_last_ping_duration_us > _max_ping_duration_us) {
+				_max_ping_duration_us = _last_ping_duration_us;
+			}
+
+			if (ping_returned) {
+				_ping_return_true_count++;
+			}
+
+			const bool pong_flag_seen = _had_ping_reply || (session->on_pong_flag == 1);
+
+			if (session->on_pong_flag == 1) {
+				_pong_flag_seen_count++;
+				session->on_pong_flag = 0;
+			}
+
+			if (ping_returned || pong_flag_seen) {
 				_num_pings_missed = 0;
+				_last_agent_activity = now;
 
 			} else {
 				++_num_pings_missed;
+				++_ping_missed_count_total;
 			}
-
-			int timeout_ms = 1'000; // 1 second
-			uint8_t attempts = 1;
-			uxr_ping_agent_session(session, timeout_ms, attempts);
 
 			_had_ping_reply = false;
 		}
 
-		if (_num_pings_missed >= 3) {
-			PX4_ERR("No ping response, disconnecting");
-			_connected = false;
-		}
+		if (_num_pings_missed >= RUNTIME_PING_MISSES_ALLOWED) {
+			const bool agent_activity_recent = hrt_elapsed_time(&_last_agent_activity)
+							 <= RUNTIME_AGENT_ACTIVITY_STALE_TIMEOUT_US;
 
-		int32_t tx_timeout = _param_uxrce_dds_tx_to.get();
-		int32_t rx_timeout = _param_uxrce_dds_rx_to.get();
+			if (tx_only_link_active && agent_activity_recent) {
+				_ping_tx_only_bypass_count++;
+				_num_pings_missed = 0;
+
+			} else {
+				if (tx_only_link_active) {
+					PX4_ERR("No recent agent response, disconnecting");
+					_ping_stale_disconnect_count++;
+
+				} else {
+					PX4_ERR("No ping response, disconnecting");
+				}
+
+				_ping_disconnect_count++;
+				_connected = false;
+			}
+		}
 
 		if (tx_timeout > 0 && _num_tx_rate_zero >= tx_timeout) {
 			PX4_ERR("Payload TX rate zero for too long, disconnecting");
@@ -583,6 +652,7 @@ void UxrceddsClient::resetConnectivityCounters()
 {
 	_last_status_update = hrt_absolute_time();
 	_last_ping = hrt_absolute_time();
+	_last_agent_activity = _last_ping;
 	_had_ping_reply = false;
 	_num_pings_missed = 0;
 	_last_num_payload_sent = 0;
@@ -628,7 +698,6 @@ void UxrceddsClient::run()
 {
 	_subs = new SendTopicsSubs();
 	_pubs = new RcvTopicsPubs();
-	uxrSession session;
 
 	if (!_subs || !_pubs) {
 		PX4_ERR("alloc failed");
@@ -636,8 +705,13 @@ void UxrceddsClient::run()
 	}
 
 	while (!should_exit()) {
+		uxrSession session{};
+
 		while (!should_exit()) {
+			session = {};
+
 			if (!init()) {
+				deinit();
 				px4_usleep(1'000'000);
 				PX4_ERR("init failed, will retry now");
 				continue;
@@ -645,6 +719,7 @@ void UxrceddsClient::run()
 
 			if (!setupSession(&session)) {
 				deleteSession(&session);
+				deinit();
 				px4_usleep(1'000'000);
 				PX4_ERR("session setup failed, will retry now");
 				continue;
@@ -656,6 +731,8 @@ void UxrceddsClient::run()
 		}
 
 		if (should_exit()) {
+			deleteSession(&session);
+			deinit();
 			return;
 		}
 
@@ -746,6 +823,8 @@ void UxrceddsClient::run()
 			/* PONG_IN_SESSION_STATUS */
 			if (session.on_pong_flag == 1) {
 				_had_ping_reply = true;
+				_pong_flag_seen_count++;
+				_last_agent_activity = hrt_absolute_time();
 				session.on_pong_flag = 0;
 			}
 
@@ -760,6 +839,7 @@ void UxrceddsClient::run()
 
 		PX4_INFO("session disconnected, attempting to reconnect...");
 		deleteSession(&session);
+		deinit();
 	}
 }
 
@@ -1010,6 +1090,27 @@ int UxrceddsClient::print_status()
 	}
 
 	PX4_INFO("timesync converged: %s", _timesync.sync_converged() ? "true" : "false");
+	PX4_INFO("Ping sent/ok/flag/missed: %lu/%lu/%lu/%lu",
+		 (unsigned long)_ping_sent_count,
+		 (unsigned long)_ping_return_true_count,
+		 (unsigned long)_pong_flag_seen_count,
+		 (unsigned long)_ping_missed_count_total);
+	PX4_INFO("Ping current misses/disconnects: %i/%lu", _num_pings_missed, (unsigned long)_ping_disconnect_count);
+	PX4_INFO("Ping tx-only bypass/stale disconnects: %lu/%lu",
+		 (unsigned long)_ping_tx_only_bypass_count,
+		 (unsigned long)_ping_stale_disconnect_count);
+	PX4_INFO("Agent activity age/stale us: %llu/%llu",
+		 (unsigned long long)hrt_elapsed_time(&_last_agent_activity),
+		 (unsigned long long)RUNTIME_AGENT_ACTIVITY_STALE_TIMEOUT_US);
+	PX4_INFO("Setup ping attempts/fails: %lu/%lu",
+		 (unsigned long)_setup_ping_attempt_count,
+		 (unsigned long)_setup_ping_fail_count);
+	PX4_INFO("Setup last ping us/serial reopens: %llu/%lu",
+		 (unsigned long long)_last_setup_ping_duration_us,
+		 (unsigned long)_serial_reopen_count);
+	PX4_INFO("Ping last/max us: %llu/%llu",
+		 (unsigned long long)_last_ping_duration_us,
+		 (unsigned long long)_max_ping_duration_us);
 
 	perf_print_counter(_loop_perf);
 	perf_print_counter(_loop_interval_perf);

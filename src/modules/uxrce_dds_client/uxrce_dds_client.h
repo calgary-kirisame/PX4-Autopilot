@@ -190,10 +190,24 @@ private:
 
 	hrt_abstime _last_status_update;
 	hrt_abstime _last_ping;
+	hrt_abstime _last_agent_activity{0};
+	hrt_abstime _last_ping_duration_us{0};
+	hrt_abstime _max_ping_duration_us{0};
 	bool _had_ping_reply{false};
 	int _num_pings_missed{0};
 	int32_t _num_tx_rate_zero{0};
 	int32_t _num_rx_rate_zero{0};
+	uint32_t _ping_sent_count{0};
+	uint32_t _ping_return_true_count{0};
+	uint32_t _pong_flag_seen_count{0};
+	uint32_t _ping_missed_count_total{0};
+	uint32_t _ping_disconnect_count{0};
+	uint32_t _ping_stale_disconnect_count{0};
+	uint32_t _ping_tx_only_bypass_count{0};
+	uint32_t _setup_ping_attempt_count{0};
+	uint32_t _setup_ping_fail_count{0};
+	uint32_t _serial_reopen_count{0};
+	hrt_abstime _last_setup_ping_duration_us{0};
 	uint32_t _last_num_payload_sent{0};
 	uint32_t _last_num_payload_received{0};
 	int _last_payload_tx_rate{}; ///< in B/s
@@ -201,6 +215,7 @@ private:
 
 	bool _connected{false};
 	bool _session_created{false};
+	bool _subs_initialized{false};
 	bool _timesync_converged{false};
 
 	Timesync _timesync{timesync_status_s::SOURCE_PROTOCOL_DDS};

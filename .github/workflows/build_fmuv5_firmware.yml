@@ -1,0 +1,35 @@
+name: Build FMUv5 Firmware
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - maav-v1.18.0-beta1-port
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          submodules: recursive
+
+      - name: Fetch submodule tags
+        run: git submodule foreach --recursive 'git fetch --tags --force || true'
+
+      - name: Install PX4 build dependencies
+        run: ./Tools/setup/ubuntu.sh --no-sim-tools
+
+      - name: Build FMUv5 firmware
+        run: make -j"$(nproc)" px4_fmu-v5_default
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: px4_fmu-v5-default
+          path: build/px4_fmu-v5_default/px4_fmu-v5_default.px4
+          if-no-files-found: error
