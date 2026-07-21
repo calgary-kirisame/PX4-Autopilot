@@ -6,6 +6,10 @@ on:
     branches:
       - maav-v1.18.0-beta1-port
 
+env:
+  FIRMWARE_PACKAGE: build/px4_fmu-v5_default/px4_fmu-v5_default.px4
+  FIRMWARE_VERSION: 1.18.0
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -27,9 +31,30 @@ jobs:
       - name: Build FMUv5 firmware
         run: make -j"$(nproc)" px4_fmu-v5_default
 
+      - name: Set and verify firmware package metadata
+        run: |
+          set -euo pipefail
+          tmp="${FIRMWARE_PACKAGE}.tmp"
+          jq --arg version "$FIRMWARE_VERSION" '.version = $version' \
+            "$FIRMWARE_PACKAGE" > "$tmp"
+          mv "$tmp" "$FIRMWARE_PACKAGE"
+
+          jq -e --arg version "$FIRMWARE_VERSION" --arg sha "$GITHUB_SHA" \
+            '.version == $version and .git_hash == $sha' \
+            "$FIRMWARE_PACKAGE" > /dev/null
+
+          identity="$(jq -r '.git_identity' "$FIRMWARE_PACKAGE")"
+          case "$identity" in
+            v1.18.0-beta1-*) ;;
+            *) echo "unexpected git_identity: $identity" >&2; exit 1 ;;
+          esac
+
+          jq '{version, git_identity, git_hash, board_id, image_size, image_maxsize}' \
+            "$FIRMWARE_PACKAGE"
+
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
           name: px4_fmu-v5-default
-          path: build/px4_fmu-v5_default/px4_fmu-v5_default.px4
+          path: ${{ env.FIRMWARE_PACKAGE }}
           if-no-files-found: error
