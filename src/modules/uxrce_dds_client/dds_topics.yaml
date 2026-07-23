@@ -30,6 +30,10 @@ publications:
     type: px4_msgs::msg::EstimatorStatusFlags
     rate_limit: 5.
 
+  - topic: /fmu/out/estimator_status
+    type: px4_msgs::msg::EstimatorStatus
+    rate_limit: 5.
+
   - topic: /fmu/out/estimator_aid_src_rng_hgt
     type: px4_msgs::msg::EstimatorAidSource1d
     rate_limit: 50.
