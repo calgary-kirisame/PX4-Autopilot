@@ -34,6 +34,18 @@ publications:
     type: px4_msgs::msg::EstimatorStatus
     rate_limit: 5.
 
+  - topic: /fmu/out/estimator_gps_status
+    type: px4_msgs::msg::EstimatorGpsStatus
+    rate_limit: 5.
+
+  - topic: /fmu/out/estimator_aid_src_gnss_pos
+    type: px4_msgs::msg::EstimatorAidSource2d
+    rate_limit: 10.
+
+  - topic: /fmu/out/estimator_aid_src_gnss_vel
+    type: px4_msgs::msg::EstimatorAidSource3d
+    rate_limit: 10.
+
   - topic: /fmu/out/estimator_aid_src_rng_hgt
     type: px4_msgs::msg::EstimatorAidSource1d
     rate_limit: 50.
