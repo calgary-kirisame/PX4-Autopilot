@@ -59,9 +59,9 @@ static constexpr int SETUP_PING_ATTEMPTS = 10;
 
 using namespace time_literals;
 
-static_assert(parameter_request_s::PARAM_TYPE_UNKNOWN == PARAM_TYPE_UNKNOWN);
-static_assert(parameter_request_s::PARAM_TYPE_INT32 == PARAM_TYPE_INT32);
-static_assert(parameter_request_s::PARAM_TYPE_FLOAT == PARAM_TYPE_FLOAT);
+static_assert(parameter_request_s::VALUE_TYPE_UNKNOWN == PARAM_TYPE_UNKNOWN);
+static_assert(parameter_request_s::VALUE_TYPE_INT32 == PARAM_TYPE_INT32);
+static_assert(parameter_request_s::VALUE_TYPE_FLOAT == PARAM_TYPE_FLOAT);
 
 #if defined(UXRCE_DDS_CLIENT_UDP)
 static void configure_udp_socket_nonblocking(int fd)
@@ -562,7 +562,7 @@ void UxrceddsClient::handleParameterRequest()
 		response.timestamp = hrt_absolute_time();
 		response.request_id = request.request_id;
 		response.result = parameter_response_s::RESULT_INVALID_NAME;
-		response.parameter_type = parameter_response_s::PARAM_TYPE_UNKNOWN;
+		response.parameter_type = parameter_response_s::VALUE_TYPE_UNKNOWN;
 		memcpy(response.name, request.name, sizeof(response.name));
 		response.name[sizeof(response.name) - 1] = '\0';
 
@@ -584,10 +584,10 @@ void UxrceddsClient::handleParameterRequest()
 		const param_type_t type = param_type(parameter);
 
 		if (type == PARAM_TYPE_INT32) {
-			response.parameter_type = parameter_response_s::PARAM_TYPE_INT32;
+			response.parameter_type = parameter_response_s::VALUE_TYPE_INT32;
 
 		} else if (type == PARAM_TYPE_FLOAT) {
-			response.parameter_type = parameter_response_s::PARAM_TYPE_FLOAT;
+			response.parameter_type = parameter_response_s::VALUE_TYPE_FLOAT;
 
 		} else {
 			response.result = parameter_response_s::RESULT_TYPE_MISMATCH;

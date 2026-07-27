@@ -7,9 +7,9 @@ uint8 OPERATION_READ = 0
 uint8 OPERATION_WRITE = 1
 uint8 operation
 
-uint8 PARAM_TYPE_UNKNOWN = 0
-uint8 PARAM_TYPE_INT32 = 1
-uint8 PARAM_TYPE_FLOAT = 2
+uint8 VALUE_TYPE_UNKNOWN = 0
+uint8 VALUE_TYPE_INT32 = 1
+uint8 VALUE_TYPE_FLOAT = 2
 uint8 parameter_type # Required for writes; ignored for reads
 
 char[17] name # Canonical PX4 parameter name, null terminated
