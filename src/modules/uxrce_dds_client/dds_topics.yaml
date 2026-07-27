@@ -65,6 +65,9 @@ publications:
     type: px4_msgs::msg::PositionSetpointTriplet
     rate_limit: 5.
 
+  - topic: /fmu/out/parameter_response
+    type: px4_msgs::msg::ParameterResponse
+
   - topic: /fmu/out/sensor_combined
     type: px4_msgs::msg::SensorCombined
 
@@ -180,6 +183,9 @@ subscriptions:
 
   - topic: /fmu/in/onboard_computer_status
     type: px4_msgs::msg::OnboardComputerStatus
+
+  - topic: /fmu/in/parameter_request
+    type: px4_msgs::msg::ParameterRequest
 
   - topic: /fmu/in/obstacle_distance
     type: px4_msgs::msg::ObstacleDistance

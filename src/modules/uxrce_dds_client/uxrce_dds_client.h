@@ -40,6 +40,10 @@
 
 #include <uORB/topics/message_format_request.h>
 #include <uORB/topics/message_format_response.h>
+#include <uORB/topics/parameter_request.h>
+#include <uORB/topics/parameter_response.h>
+#include <uORB/topics/vehicle_status.h>
+#include <uORB/Publication.hpp>
 #include <uORB/Subscription.hpp>
 
 #include <lib/timesync/Timesync.hpp>
@@ -131,6 +135,7 @@ private:
 	bool setBaudrate(int fd, unsigned baud);
 
 	void handleMessageFormatRequest();
+	void handleParameterRequest();
 
 	void calculateTxRxRate();
 	void checkConnectivity(uxrSession *session);
@@ -138,6 +143,10 @@ private:
 
 	uORB::Publication<message_format_response_s> _message_format_response_pub{ORB_ID(message_format_response)};
 	uORB::Subscription _message_format_request_sub{ORB_ID(message_format_request)};
+	uORB::Publication<parameter_response_s> _parameter_response_pub{ORB_ID(parameter_response)};
+	uORB::Subscription _parameter_request_sub{ORB_ID(parameter_request)};
+	uORB::Subscription _vehicle_status_sub{ORB_ID(vehicle_status)};
+	uint8_t _arming_state{0};
 
 	/** Synchronizes the system clock if the time is off by more than 5 seconds */
 	void syncSystemClock(uxrSession *session);

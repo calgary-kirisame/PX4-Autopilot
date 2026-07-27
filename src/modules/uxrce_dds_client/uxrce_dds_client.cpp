@@ -59,6 +59,10 @@ static constexpr int SETUP_PING_ATTEMPTS = 10;
 
 using namespace time_literals;
 
+static_assert(parameter_request_s::PARAM_TYPE_UNKNOWN == PARAM_TYPE_UNKNOWN);
+static_assert(parameter_request_s::PARAM_TYPE_INT32 == PARAM_TYPE_INT32);
+static_assert(parameter_request_s::PARAM_TYPE_FLOAT == PARAM_TYPE_FLOAT);
+
 #if defined(UXRCE_DDS_CLIENT_UDP)
 static void configure_udp_socket_nonblocking(int fd)
 {
@@ -543,6 +547,104 @@ void UxrceddsClient::handleMessageFormatRequest()
 	}
 }
 
+void UxrceddsClient::handleParameterRequest()
+{
+	vehicle_status_s vehicle_status;
+
+	if (_vehicle_status_sub.update(&vehicle_status)) {
+		_arming_state = vehicle_status.arming_state;
+	}
+
+	parameter_request_s request;
+
+	while (_parameter_request_sub.update(&request)) {
+		parameter_response_s response{};
+		response.timestamp = hrt_absolute_time();
+		response.request_id = request.request_id;
+		response.result = parameter_response_s::RESULT_INVALID_NAME;
+		response.parameter_type = parameter_response_s::PARAM_TYPE_UNKNOWN;
+		memcpy(response.name, request.name, sizeof(response.name));
+		response.name[sizeof(response.name) - 1] = '\0';
+
+		const bool name_terminated = memchr(request.name, '\0', sizeof(request.name)) != nullptr;
+
+		if (!name_terminated || request.name[0] == '\0') {
+			_parameter_response_pub.publish(response);
+			continue;
+		}
+
+		const param_t parameter = param_find_no_notification(request.name);
+
+		if (parameter == PARAM_INVALID) {
+			response.result = parameter_response_s::RESULT_NOT_FOUND;
+			_parameter_response_pub.publish(response);
+			continue;
+		}
+
+		const param_type_t type = param_type(parameter);
+
+		if (type == PARAM_TYPE_INT32) {
+			response.parameter_type = parameter_response_s::PARAM_TYPE_INT32;
+
+		} else if (type == PARAM_TYPE_FLOAT) {
+			response.parameter_type = parameter_response_s::PARAM_TYPE_FLOAT;
+
+		} else {
+			response.result = parameter_response_s::RESULT_TYPE_MISMATCH;
+			_parameter_response_pub.publish(response);
+			continue;
+		}
+
+		if (request.operation == parameter_request_s::OPERATION_WRITE) {
+			if (_arming_state != vehicle_status_s::ARMING_STATE_DISARMED) {
+				response.result = parameter_response_s::RESULT_VEHICLE_ARMED;
+				_parameter_response_pub.publish(response);
+				continue;
+			}
+
+			if (request.parameter_type != response.parameter_type) {
+				response.result = parameter_response_s::RESULT_TYPE_MISMATCH;
+				_parameter_response_pub.publish(response);
+				continue;
+			}
+
+			int set_result = PX4_ERROR;
+
+			if (type == PARAM_TYPE_INT32) {
+				set_result = param_set(parameter, &request.int_value);
+
+			} else if (PX4_ISFINITE(request.float_value)) {
+				set_result = param_set(parameter, &request.float_value);
+			}
+
+			if (set_result != PX4_OK) {
+				response.result = parameter_response_s::RESULT_SET_FAILED;
+				_parameter_response_pub.publish(response);
+				continue;
+			}
+
+		} else if (request.operation != parameter_request_s::OPERATION_READ) {
+			response.result = parameter_response_s::RESULT_INVALID_OPERATION;
+			_parameter_response_pub.publish(response);
+			continue;
+		}
+
+		int get_result = PX4_ERROR;
+
+		if (type == PARAM_TYPE_INT32) {
+			get_result = param_get(parameter, &response.int_value);
+
+		} else {
+			get_result = param_get(parameter, &response.float_value);
+		}
+
+		response.result = get_result == PX4_OK
+				  ? parameter_response_s::RESULT_SUCCESS
+				  : parameter_response_s::RESULT_SET_FAILED;
+		_parameter_response_pub.publish(response);
+	}
+}
+
 void UxrceddsClient::checkConnectivity(uxrSession *session)
 {
 	// Reset TX zero counter, when data is sent
@@ -818,6 +920,7 @@ void UxrceddsClient::run()
 			}
 
 			handleMessageFormatRequest();
+			handleParameterRequest();
 
 			// Check for a ping response
 			/* PONG_IN_SESSION_STATUS */
