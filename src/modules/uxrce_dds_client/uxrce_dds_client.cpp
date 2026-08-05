@@ -49,7 +49,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-static constexpr char NAMESPACE_PREFIX[] = "uav_";
+static constexpr char NAMESPACE_PREFIX[] = "px4_";
 #define PARTICIPANT_XML_SIZE 512
 static constexpr uint8_t TIMESYNC_MAX_TIMEOUTS = 10;
 static constexpr int RUNTIME_PING_MISSES_ALLOWED = 10;
@@ -1376,7 +1376,7 @@ $ uxrce_dds_client start -t udp -h 127.0.0.1 -p 15555
 	PRINT_MODULE_USAGE_PARAM_INT('b', 0, 0, 3000000, "Baudrate (can also be p:<param_name>)", true);
 	PRINT_MODULE_USAGE_PARAM_STRING('h', nullptr, "<IP>", "Agent IP. If not provided, defaults to UXRCE_DDS_AG_IP", true);
 	PRINT_MODULE_USAGE_PARAM_INT('p', -1, 0, 65535, "Agent listening port. If not provided, defaults to UXRCE_DDS_PRT", true);
-	PRINT_MODULE_USAGE_PARAM_STRING('n', nullptr, nullptr, "Client DDS namespace. If not provided but UXRCE_DDS_NS_IDX is between 0 and 9999 inclusive, then uav_ + UXRCE_DDS_NS_IDX will be used", true);
+	PRINT_MODULE_USAGE_PARAM_STRING('n', nullptr, nullptr, "Client DDS namespace. If not provided but UXRCE_DDS_NS_IDX is between 0 and 9999 inclusive, then px4_ + UXRCE_DDS_NS_IDX will be used", true);
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
 	return 0;

@@ -134,7 +134,7 @@ parameters:
             description:
                 short: Define an index-based message namespace
                 long: |
-                    Defines an index-based namespace for DDS messages, e.g, uav_0, uav_1, up to uav_9999
+                    Defines an index-based namespace for DDS messages, e.g, px4_0, px4_1, up to px4_9999
                     A value less than zero leaves the namespace empty
             type: int32
             min: -1
