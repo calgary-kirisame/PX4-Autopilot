@@ -50,6 +50,14 @@ publications:
     type: px4_msgs::msg::EstimatorAidSource1d
     rate_limit: 50.
 
+  - topic: /fmu/out/estimator_aid_src_optical_flow
+    type: px4_msgs::msg::EstimatorAidSource2d
+    rate_limit: 10.
+
+  - topic: /fmu/out/estimator_aid_src_ev_pos
+    type: px4_msgs::msg::EstimatorAidSource2d
+    rate_limit: 10.
+
   - topic: /fmu/out/failsafe_flags
     type: px4_msgs::msg::FailsafeFlags
     rate_limit: 5.
