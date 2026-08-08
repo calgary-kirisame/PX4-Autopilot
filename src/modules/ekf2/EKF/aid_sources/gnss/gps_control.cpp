@@ -128,16 +128,18 @@ void Ekf::controlGpsFusion(const imuSample &imu_delayed)
 
 void Ekf::controlGnssVelFusion(estimator_aid_source3d_s &aid_src, const bool force_reset)
 {
-	const bool continuing_conditions_passing = (_params.ekf2_gps_ctrl & static_cast<int32_t>(GnssCtrl::VEL))
+	const bool gnss_height_healthy = !(_params.ekf2_gps_ctrl & static_cast<int32_t>(GnssCtrl::VPOS))
+					 || !_control_status.flags.gnss_hgt_fault;
+	const bool continuing_conditions_passing = (_params.ekf2_gps_ctrl & static_cast<int32_t>(GnssCtrl::HVEL))
 			&& _control_status.flags.tilt_align
 			&& _control_status.flags.yaw_align
 			&& !_control_status.flags.gnss_fault
-			&& !_control_status.flags.gnss_hgt_fault;
+			&& gnss_height_healthy;
 	const bool starting_conditions_passing = continuing_conditions_passing && _gnss_checks.passed();
 
 	if (_control_status.flags.gnss_vel) {
 		if (continuing_conditions_passing) {
-			fuseVelocity(aid_src);
+			fuseHorizontalVelocity(aid_src);
 
 			const bool fusion_timeout = isTimedOut(aid_src.time_last_fuse, _params.reset_timeout_max);
 
@@ -163,7 +165,7 @@ void Ekf::controlGnssVelFusion(estimator_aid_source3d_s &aid_src, const bool for
 
 			// Start fusing the data without reset if possible to avoid disturbing the filter
 			if (!do_reset && aid_src.test_ratio[0] < 1.f && aid_src.test_ratio[1] < 1.f) {
-				fused = fuseVelocity(aid_src);
+				fused = fuseHorizontalVelocity(aid_src);
 			}
 
 			bool reset = false;
@@ -185,11 +187,13 @@ void Ekf::controlGnssVelFusion(estimator_aid_source3d_s &aid_src, const bool for
 void Ekf::controlGnssPosFusion(estimator_aid_source2d_s &aid_src, const bool force_reset)
 {
 	const bool gnss_pos_enabled = (_params.ekf2_gps_ctrl & static_cast<int32_t>(GnssCtrl::HPOS));
+	const bool gnss_height_healthy = !(_params.ekf2_gps_ctrl & static_cast<int32_t>(GnssCtrl::VPOS))
+					 || !_control_status.flags.gnss_hgt_fault;
 
 	const bool continuing_conditions_passing = gnss_pos_enabled
 			&& _control_status.flags.tilt_align
 			&& _control_status.flags.yaw_align
-			&& !_control_status.flags.gnss_hgt_fault;
+			&& gnss_height_healthy;
 	const bool starting_conditions_passing = continuing_conditions_passing && _gnss_checks.passed();
 	const bool gpos_init_conditions_passing = gnss_pos_enabled && _gnss_checks.passed();
 
@@ -326,18 +330,16 @@ void Ekf::updateGnssVel(const imuSample &imu_sample, const gnssSample &gnss_samp
 			      getVelocityVariance() + vel_obs_var,  // innovation variance
 			      innovation_gate);                     // innovation gate
 
-	// vz special case if there is bad vertical acceleration data, then don't reject measurement if GNSS reports velocity accuracy is acceptable,
-	// but limit innovation to prevent spikes that could destabilise the filter
-	bool bad_acc_vz_rejected = _fault_status.flags.bad_acc_vertical
-				   && (aid_src.test_ratio[2] > 1.f)                                   // vz rejected
-				   && (aid_src.test_ratio[0] < 1.f) && (aid_src.test_ratio[1] < 1.f); // vx & vy accepted
+	// Down velocity remains diagnostic and has neither fusion nor veto authority.
+	aid_src.innovation_rejected = false;
 
-	if (bad_acc_vz_rejected
-	    && (gnss_sample.sacc < _params.ekf2_req_sacc)
-	   ) {
-		const float innov_limit = innovation_gate * sqrtf(aid_src.innovation_variance[2]);
-		aid_src.innovation[2] = math::constrain(aid_src.innovation[2], -innov_limit, innov_limit);
-		aid_src.innovation_rejected = false;
+	for (unsigned i = 0; i < 2; i++) {
+		if ((aid_src.test_ratio[i] > 1.f)
+		    || !PX4_ISFINITE(aid_src.test_ratio[i])
+		    || !PX4_ISFINITE(aid_src.innovation[i])
+		    || !PX4_ISFINITE(aid_src.innovation_variance[i])) {
+			aid_src.innovation_rejected = true;
+		}
 	}
 }
 
@@ -388,7 +390,7 @@ void Ekf::controlGnssYawEstimator(estimator_aid_source3d_s &aid_src_vel)
 		_yawEstimator.fuseVelocity(vel_xy, vel_accuracy, _control_status.flags.in_air);
 
 		// Try to align yaw using estimate if available
-		if (((_params.ekf2_gps_ctrl & static_cast<int32_t>(GnssCtrl::VEL))
+		if (((_params.ekf2_gps_ctrl & static_cast<int32_t>(GnssCtrl::HVEL))
 		     || (_params.ekf2_gps_ctrl & static_cast<int32_t>(GnssCtrl::HPOS)))
 		    && !_control_status.flags.yaw_align
 		    && _control_status.flags.tilt_align) {
@@ -446,9 +448,19 @@ bool Ekf::tryYawEmergencyReset()
 void Ekf::resetVelocityToGnss(estimator_aid_source3d_s &aid_src)
 {
 	_information_events.flags.reset_vel_to_gps = true;
-	resetVelocityTo(Vector3f(aid_src.observation), Vector3f(aid_src.observation_variance));
+	resetHorizontalVelocityTo(Vector2f(aid_src.observation), Vector2f(aid_src.observation_variance));
 
-	resetAidSourceStatusZeroInnovation(aid_src);
+	for (unsigned i = 0; i < 2; i++) {
+		aid_src.innovation[i] = 0.f;
+		aid_src.innovation_filtered[i] = 0.f;
+		aid_src.innovation_variance[i] = aid_src.observation_variance[i];
+		aid_src.test_ratio[i] = 0.f;
+		aid_src.test_ratio_filtered[i] = 0.f;
+	}
+
+	aid_src.time_last_fuse = _time_delayed_us;
+	aid_src.innovation_rejected = false;
+	aid_src.fused = true;
 }
 
 void Ekf::resetHorizontalPositionToGnss(estimator_aid_source2d_s &aid_src)

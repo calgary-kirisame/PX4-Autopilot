@@ -54,6 +54,26 @@ bool Ekf::fuseHorizontalVelocity(estimator_aid_source2d_s &aid_src)
 	return aid_src.fused;
 }
 
+bool Ekf::fuseHorizontalVelocity(estimator_aid_source3d_s &aid_src)
+{
+	// Fuse north and east. Keep the down fields in the 3-D aid source for diagnosis only.
+	if (!aid_src.innovation_rejected) {
+		for (unsigned i = 0; i < 2; i++) {
+			fuseDirectStateMeasurement(aid_src.innovation[i], aid_src.innovation_variance[i], aid_src.observation_variance[i],
+						   State::vel.idx + i);
+		}
+
+		aid_src.fused = true;
+		aid_src.time_last_fuse = _time_delayed_us;
+		_time_last_hor_vel_fuse = _time_delayed_us;
+
+	} else {
+		aid_src.fused = false;
+	}
+
+	return aid_src.fused;
+}
+
 bool Ekf::fuseVelocity(estimator_aid_source3d_s &aid_src)
 {
 	// vx, vy, vz

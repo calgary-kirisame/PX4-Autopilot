@@ -407,6 +407,7 @@ protected:
 
 	uint32_t _min_gps_health_time_us{10000000}; ///< GPS is marked as healthy only after this amount of time
 	GnssChecks _gnss_checks{_params.ekf2_gps_check,
+			   _params.ekf2_gps_ctrl,
 			   _params.ekf2_req_nsats,
 			   _params.ekf2_req_pdop,
 			   _params.ekf2_req_eph,

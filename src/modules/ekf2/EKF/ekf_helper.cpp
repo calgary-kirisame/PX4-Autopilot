@@ -494,14 +494,6 @@ float Ekf::getVerticalVelocityInnovationTestRatio() const
 	// return the largest velocity innovation test ratio
 	float test_ratio = -1.f;
 
-#if defined(CONFIG_EKF2_GNSS)
-
-	if (_control_status.flags.gnss_vel) {
-		test_ratio = math::max(test_ratio, fabsf(_aid_src_gnss_vel.test_ratio_filtered[2]));
-	}
-
-#endif // CONFIG_EKF2_GNSS
-
 #if defined(CONFIG_EKF2_EXTERNAL_VISION)
 
 	if (_control_status.flags.ev_vel) {
@@ -726,7 +718,7 @@ uint16_t Ekf::get_ekf_soln_status() const
 
 	// 1024	ESTIMATOR_GPS_GLITCH	True if the EKF has detected a GNSS glitch
 #if defined(CONFIG_EKF2_GNSS)
-	const bool gnss_vel_innov_bad = Vector3f(_aid_src_gnss_vel.test_ratio).max() > 1.f;
+	const bool gnss_vel_innov_bad = Vector2f(_aid_src_gnss_vel.test_ratio).max() > 1.f;
 	const bool gnss_pos_innov_bad = Vector2f(_aid_src_gnss_pos.test_ratio).max() > 1.f;
 	soln_status.flags.gps_glitch = (gnss_vel_innov_bad || gnss_pos_innov_bad);
 #endif // CONFIG_EKF2_GNSS

@@ -325,7 +325,7 @@ void EKF2::AdvertiseTopics()
 				_estimator_aid_src_gnss_pos_pub.advertise();
 			}
 
-			if (_param_ekf2_gps_ctrl.get() & static_cast<int32_t>(GnssCtrl::VEL)) {
+			if (_param_ekf2_gps_ctrl.get() & static_cast<int32_t>(GnssCtrl::HVEL)) {
 				_estimator_aid_src_gnss_vel_pub.advertise();
 			}
 

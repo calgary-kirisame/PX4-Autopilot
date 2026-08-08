@@ -103,7 +103,7 @@ bool GnssChecks::runSimplifiedChecks(const gnssSample &gnss)
 	if (
 		(_check_fail_status.flags.fix     && isCheckEnabled(GnssChecksMask::kFix)) ||
 		(_check_fail_status.flags.hacc    && isCheckEnabled(GnssChecksMask::kHacc)) ||
-		(_check_fail_status.flags.vacc    && isCheckEnabled(GnssChecksMask::kVacc)) ||
+		(_check_fail_status.flags.vacc    && isCheckEnabled(GnssChecksMask::kVacc) && isVerticalPositionFusionEnabled()) ||
 		(_check_fail_status.flags.sacc    && isCheckEnabled(GnssChecksMask::kSacc)) ||
 		(_check_fail_status.flags.spoofed && isCheckEnabled(GnssChecksMask::kSpoofed)) ||
 		(_check_fail_status.flags.jammed  && isCheckEnabled(GnssChecksMask::kJammed))
@@ -155,12 +155,12 @@ bool GnssChecks::runInitialFixChecks(const gnssSample &gnss)
 		(_check_fail_status.flags.nsats   && isCheckEnabled(GnssChecksMask::kNsats)) ||
 		(_check_fail_status.flags.pdop    && isCheckEnabled(GnssChecksMask::kPdop)) ||
 		(_check_fail_status.flags.hacc    && isCheckEnabled(GnssChecksMask::kHacc)) ||
-		(_check_fail_status.flags.vacc    && isCheckEnabled(GnssChecksMask::kVacc)) ||
+		(_check_fail_status.flags.vacc    && isCheckEnabled(GnssChecksMask::kVacc) && isVerticalPositionFusionEnabled()) ||
 		(_check_fail_status.flags.sacc    && isCheckEnabled(GnssChecksMask::kSacc)) ||
 		(_check_fail_status.flags.hdrift  && isCheckEnabled(GnssChecksMask::kHdrift)) ||
-		(_check_fail_status.flags.vdrift  && isCheckEnabled(GnssChecksMask::kVdrift)) ||
+		(_check_fail_status.flags.vdrift  && isCheckEnabled(GnssChecksMask::kVdrift) && isVerticalPositionFusionEnabled()) ||
 		(_check_fail_status.flags.hspeed  && isCheckEnabled(GnssChecksMask::kHspd)) ||
-		(_check_fail_status.flags.vspeed  && isCheckEnabled(GnssChecksMask::kVspd)) ||
+		(_check_fail_status.flags.vspeed  && isCheckEnabled(GnssChecksMask::kVspd) && isVerticalPositionFusionEnabled()) ||
 		(_check_fail_status.flags.spoofed && isCheckEnabled(GnssChecksMask::kSpoofed)) ||
 		(_check_fail_status.flags.jammed  && isCheckEnabled(GnssChecksMask::kJammed))
 	) {

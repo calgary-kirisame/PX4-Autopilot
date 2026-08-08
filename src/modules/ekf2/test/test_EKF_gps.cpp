@@ -37,7 +37,10 @@
  */
 
 #include <gtest/gtest.h>
+#include <tuple>
+#include <utility>
 #include "EKF/ekf.h"
+#include "EKF/aid_sources/gnss/gnss_checks.hpp"
 #include "sensor_simulator/sensor_simulator.h"
 #include "sensor_simulator/ekf_wrapper.h"
 #include "test_helper/reset_logging_checker.h"
@@ -75,6 +78,60 @@ public:
 	{
 	}
 };
+
+std::pair<bool, estimator::GnssChecks::gps_check_fail_status_u> runVerticalGnssChecks(const int32_t gps_ctrl)
+{
+	int32_t gps_ctrl_value = gps_ctrl;
+	int32_t check_mask = (1 << 3) | (1 << 6) | (1 << 8); // VACC, VDRIFT, VSPD
+	int32_t req_nsats = 6;
+	float req_pdop = 2.f;
+	float req_eph = 3.f;
+	float req_epv = 5.f;
+	float req_sacc = 1.f;
+	float req_hdrift = 0.3f;
+	float req_vdrift = 0.1f;
+	int32_t req_fix = 3;
+	float vel_limit = 25.f;
+	uint32_t min_health_time_us = 1'000'000;
+	filter_control_status_u control_status{};
+	control_status.flags.vehicle_at_rest = true;
+
+	estimator::GnssChecks checks(check_mask, gps_ctrl_value, req_nsats, req_pdop, req_eph, req_epv,
+				     req_sacc, req_hdrift, req_vdrift, req_fix, vel_limit, min_health_time_us, control_status);
+	gnssSample sample{};
+	sample.fix_type = 3;
+	sample.nsats = 16;
+	sample.hacc = 0.5f;
+	sample.vacc = 100.f;
+	sample.sacc = 0.2f;
+	sample.vel(2) = 10.f;
+	sample.lat = 47.3566094;
+	sample.lon = 8.5190237;
+	sample.alt = 422.f;
+
+	bool passed = false;
+
+	for (uint64_t seconds = 1; seconds <= 20; seconds++) {
+		sample.time_us = seconds * 1'000'000;
+		sample.alt += 1.f;
+		passed = checks.run(sample, sample.time_us);
+	}
+
+	return {passed, checks.getFailStatus()};
+}
+
+TEST(GnssChecksTest, VerticalChecksRequireGnssAltitudeFusion)
+{
+	const auto horizontal_only = runVerticalGnssChecks(static_cast<int32_t>(GnssCtrl::HVEL));
+	EXPECT_TRUE(horizontal_only.first);
+	EXPECT_TRUE(horizontal_only.second.flags.vacc);
+	EXPECT_TRUE(horizontal_only.second.flags.vdrift);
+	EXPECT_TRUE(horizontal_only.second.flags.vspeed);
+
+	const auto with_altitude = runVerticalGnssChecks(static_cast<int32_t>(GnssCtrl::HVEL)
+				   | static_cast<int32_t>(GnssCtrl::VPOS));
+	EXPECT_FALSE(with_altitude.first);
+}
 
 TEST_F(EkfGpsTest, gpsTimeout)
 {
@@ -136,6 +193,7 @@ TEST_F(EkfGpsTest, resetToGpsVelocity)
 	_sensor_simulator.runSeconds(11);
 
 	reset_logging_checker.capturePreResetState();
+	const float vertical_velocity_before = _ekf->getVelocity()(2);
 
 	// AND: simulate constant velocity gps samples for short time
 	_sensor_simulator.startGps();
@@ -154,13 +212,99 @@ TEST_F(EkfGpsTest, resetToGpsVelocity)
 	const Vector3f estimated_velocity = _ekf->getVelocity();
 	EXPECT_NEAR(estimated_velocity(0), simulated_velocity(0), 1e-3f);
 	EXPECT_NEAR(estimated_velocity(1), simulated_velocity(1), 1e-3f);
-	EXPECT_NEAR(estimated_velocity(2), simulated_velocity(2), 1e-3f);
+	EXPECT_NEAR(estimated_velocity(2), vertical_velocity_before, 0.1f);
 
 	// AND: the reset in velocity should be saved correctly
 	reset_logging_checker.capturePostResetState();
 	EXPECT_TRUE(reset_logging_checker.isHorizontalVelocityResetCounterIncreasedBy(1));
-	EXPECT_TRUE(reset_logging_checker.isVerticalVelocityResetCounterIncreasedBy(1));
-	EXPECT_TRUE(reset_logging_checker.isVelocityDeltaLoggedCorrectly(1e-2f));
+	EXPECT_TRUE(reset_logging_checker.isVerticalVelocityResetCounterIncreasedBy(0));
+	EXPECT_TRUE(reset_logging_checker.isVelocityDeltaLoggedCorrectly(0.1f));
+}
+
+TEST_F(EkfGpsTest, GnssDownVelocityIsDiagnosticOnly)
+{
+	ASSERT_TRUE(_ekf->control_status_flags().gnss_vel);
+	ASSERT_FALSE(_ekf->isVerticalVelocityAidingActive());
+	_ekf->set_in_air_status(true);
+	_ekf->set_vehicle_at_rest(false);
+
+	const float vertical_velocity_before = _ekf->getVelocity()(2);
+	const float vertical_position_before = _ekf->getPosition()(2);
+	_sensor_simulator._gps.setVelocity(Vector3f(0.f, 0.f, 50.f));
+	_sensor_simulator.runSeconds(1.f);
+
+	EXPECT_TRUE(_ekf->aid_src_gnss_vel().fused);
+	EXPECT_FALSE(_ekf->aid_src_gnss_vel().innovation_rejected);
+	EXPECT_GT(_ekf->aid_src_gnss_vel().test_ratio[2], 1.f);
+	EXPECT_NEAR(_ekf->getVelocity()(2), vertical_velocity_before, 0.1f);
+	EXPECT_NEAR(_ekf->getPosition()(2), vertical_position_before, 0.1f);
+	EXPECT_FALSE(_ekf->isVerticalVelocityAidingActive());
+}
+
+TEST(GnssDownVelocityTest, ChangingOnlyDownVelocityLeavesVerticalStateUnchanged)
+{
+	auto run_case = [](const float gps_down_velocity) {
+		auto ekf = std::make_shared<Ekf>();
+		SensorSimulator sensor_simulator(ekf);
+		EkfWrapper ekf_wrapper(ekf);
+		ekf->init(0);
+		sensor_simulator.runSeconds(0.1f);
+		ekf->set_in_air_status(false);
+		ekf->set_vehicle_at_rest(true);
+		ekf_wrapper.setRangeHeightRef();
+		ekf_wrapper.enableRangeHeightFusion();
+		sensor_simulator.startRangeFinder();
+		sensor_simulator.runSeconds(2.f);
+		ekf_wrapper.enableGpsFusion();
+		sensor_simulator.startGps();
+		sensor_simulator.runSeconds(11.f);
+		ekf->set_in_air_status(true);
+		ekf->set_vehicle_at_rest(false);
+		sensor_simulator._gps.setVelocity(Vector3f(0.f, 0.f, gps_down_velocity));
+		sensor_simulator.runSeconds(1.f);
+
+		float velocity_reset_delta = 0.f;
+		float position_reset_delta = 0.f;
+		uint8_t velocity_reset_count = 0;
+		uint8_t position_reset_count = 0;
+		ekf->get_velD_reset(&velocity_reset_delta, &velocity_reset_count);
+		ekf->get_posD_reset(&position_reset_delta, &position_reset_count);
+
+		return std::make_tuple(ekf->getVelocity()(2), ekf->getPosition()(2),
+				       velocity_reset_count, position_reset_count);
+	};
+
+	const auto nominal = run_case(0.f);
+	const auto erroneous = run_case(50.f);
+	EXPECT_NEAR(std::get<0>(nominal), std::get<0>(erroneous), 1e-4f);
+	EXPECT_NEAR(std::get<1>(nominal), std::get<1>(erroneous), 1e-4f);
+	EXPECT_EQ(std::get<2>(nominal), std::get<2>(erroneous));
+	EXPECT_EQ(std::get<3>(nominal), std::get<3>(erroneous));
+}
+
+TEST_F(EkfGpsTest, NonFiniteGnssDownVelocityDoesNotBlockHorizontalFusion)
+{
+	_ekf->set_in_air_status(true);
+	_ekf->set_vehicle_at_rest(false);
+	_sensor_simulator._gps.setVelocity(Vector3f(1.f, -1.f, NAN));
+	_sensor_simulator.runSeconds(1.f);
+
+	EXPECT_TRUE(_ekf->aid_src_gnss_vel().fused);
+	EXPECT_FALSE(_ekf->aid_src_gnss_vel().innovation_rejected);
+	EXPECT_FALSE(PX4_ISFINITE(_ekf->aid_src_gnss_vel().innovation[2]));
+	EXPECT_GT(_ekf->getVelocity().xy().norm(), 0.1f);
+}
+
+TEST_F(EkfGpsTest, HorizontalGnssVelocityInnovationIsRejected)
+{
+	_ekf->set_in_air_status(true);
+	_ekf->set_vehicle_at_rest(false);
+	_sensor_simulator._gps.setVelocity(Vector3f(100.f, 0.f, 0.f));
+	_sensor_simulator.runSeconds(0.5f);
+
+	EXPECT_TRUE(_ekf->aid_src_gnss_vel().innovation_rejected);
+	EXPECT_FALSE(_ekf->aid_src_gnss_vel().fused);
+	EXPECT_GT(_ekf->aid_src_gnss_vel().test_ratio[0], 1.f);
 }
 
 TEST_F(EkfGpsTest, resetToGpsPosition)

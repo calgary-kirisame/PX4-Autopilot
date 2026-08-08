@@ -146,7 +146,7 @@ enum class ImuCtrl : uint8_t {
 enum class GnssCtrl : uint8_t {
 	HPOS  = (1 << 0),
 	VPOS  = (1 << 1),
-	VEL  = (1 << 2),
+	HVEL  = (1 << 2),
 	YAW  = (1 << 3)
 };
 
@@ -363,7 +363,7 @@ struct parameters {
 #endif // CONFIG_EKF2_BAROMETER
 
 #if defined(CONFIG_EKF2_GNSS)
-	int32_t ekf2_gps_ctrl {static_cast<int32_t>(GnssCtrl::HPOS) | static_cast<int32_t>(GnssCtrl::VEL)};
+	int32_t ekf2_gps_ctrl {static_cast<int32_t>(GnssCtrl::HPOS) | static_cast<int32_t>(GnssCtrl::HVEL)};
 	int32_t ekf2_gps_mode {static_cast<int32_t>(GnssMode::kAuto)};
 	// position and velocity fusion
 	float ekf2_gps_v_noise{0.5f};           ///< minimum allowed observation noise for gps velocity fusion (m/sec)
@@ -626,7 +626,7 @@ uint64_t mag_heading_consistent  :
 		uint64_t valid_fake_pos          : 1; ///< 41 - true if a valid constant position is being fused
 		uint64_t constant_pos            : 1; ///< 42 - true if the vehicle is at a constant position
 		uint64_t baro_fault              : 1; ///< 43 - true when the baro has been declared faulty and is no longer being used
-		uint64_t gnss_vel                : 1; ///< 44 - true if GNSS velocity measurement fusion is intended
+		uint64_t gnss_vel                : 1; ///< 44 - true if horizontal GNSS velocity measurement fusion is intended
 uint64_t gnss_fault              :
 		1; ///< 45 - true if GNSS measurements (lat, lon, vel) have been declared faulty and are no longer used
 		uint64_t yaw_manual              : 1; ///< 46 - true if yaw has been reset manually

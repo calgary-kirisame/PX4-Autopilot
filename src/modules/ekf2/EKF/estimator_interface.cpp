@@ -732,8 +732,7 @@ bool EstimatorInterface::isVerticalVelocityAidingActive() const
 
 int EstimatorInterface::getNumberOfActiveVerticalVelocityAidingSources() const
 {
-	return int(_control_status.flags.gnss_vel)
-	       + int(_control_status.flags.ev_vel);
+	return int(_control_status.flags.ev_vel);
 }
 
 bool EstimatorInterface::isNorthEastAidingActive() const

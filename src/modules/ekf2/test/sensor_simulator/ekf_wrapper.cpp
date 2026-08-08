@@ -124,12 +124,12 @@ bool EkfWrapper::isIntendingAirspeedFusion() const
 
 void EkfWrapper::enableGpsFusion()
 {
-	_ekf_params->ekf2_gps_ctrl |= static_cast<int32_t>(GnssCtrl::HPOS) | static_cast<int32_t>(GnssCtrl::VEL);
+	_ekf_params->ekf2_gps_ctrl |= static_cast<int32_t>(GnssCtrl::HPOS) | static_cast<int32_t>(GnssCtrl::HVEL);
 }
 
 void EkfWrapper::disableGpsFusion()
 {
-	_ekf_params->ekf2_gps_ctrl &= ~(static_cast<int32_t>(GnssCtrl::HPOS) | static_cast<int32_t>(GnssCtrl::VEL));
+	_ekf_params->ekf2_gps_ctrl &= ~(static_cast<int32_t>(GnssCtrl::HPOS) | static_cast<int32_t>(GnssCtrl::HVEL));
 }
 
 void EkfWrapper::setGpsEnabled(bool enabled)

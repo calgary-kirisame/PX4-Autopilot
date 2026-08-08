@@ -9,15 +9,17 @@ PX4_SIM_MODEL=${PX4_SIM_MODEL:=x500}
 
 . ${R}etc/init.d-posix/airframes/4001_gz_x500
 
-# Ground-truth EV stands in for the mocap/QTM link, which gives pose only. Fuse EV
-# horizontal+vertical position and yaw (EKF2_EV_CTRL=11 = bits 0+1+3); do NOT fuse
-# EV velocity -- a mocap rig has no velocity output, so EKF2 derives it from the IMU.
-# Make vision the height reference (EKF2_HGT_REF=3); demote GNSS to velocity-only
-# (EKF2_GPS_CTRL=4) so vision holds position/height/heading authority. EKF2_EV_DELAY
-# is provisional until measured open-loop against vehicle_local_position.
-param set-default EKF2_EV_CTRL 11
-param set-default EKF2_HGT_REF 3
+# Ground-truth EV stands in for horizontal SVO and heading. Fuse EV horizontal
+# position and yaw (EKF2_EV_CTRL=9 = bits 0+3), but not EV velocity or height.
+# Range owns height, with barometer and the inertial solution supporting it.
+# GNSS supplies horizontal velocity only. Its conservative 2 m/s noise floor keeps
+# its gain low while EV is healthy and lets it constrain drift after an EV outage.
+param set-default EKF2_EV_CTRL 9
+param set-default EKF2_HGT_REF 2
+param set-default EKF2_RNG_CTRL 1
 param set-default EKF2_GPS_CTRL 4
+param set-default EKF2_GPS_V_NOISE 2.0
+# EKF2_EV_DELAY is provisional until measured open-loop against vehicle_local_position.
 param set-default EKF2_EV_DELAY 5
 
 # Companion/offboard operation does not require RC or GCS while OFFBOARD is

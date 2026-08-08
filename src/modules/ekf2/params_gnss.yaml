@@ -6,13 +6,14 @@ parameters:
       description:
         short: GNSS sensor aiding
         long: 'Set bits in the following positions to enable: 0 : Longitude and latitude
-          fusion 1 : Altitude fusion 2 : 3D velocity fusion 3 : Dual antenna heading
-          fusion'
+          fusion 1 : Altitude fusion 2 : Horizontal velocity fusion 3 : Dual antenna
+          heading fusion. In the MAAV fork, down velocity is recorded for diagnosis
+          but is not fused.'
       type: bitmask
       bit:
         0: Lon/lat
         1: Altitude
-        2: 3D velocity
+        2: Horizontal velocity
         3: Dual antenna heading
       default: 7
       min: 0
@@ -67,7 +68,7 @@ parameters:
       decimal: 1
     EKF2_GPS_V_NOISE:
       description:
-        short: Measurement noise for GNSS velocity
+        short: Measurement noise for horizontal GNSS velocity
       type: float
       default: 0.3
       min: 0.01
@@ -78,7 +79,9 @@ parameters:
       description:
         short: Integer bitmask controlling GPS checks
         long: 'Each threshold value is defined by the parameter indicated next to the check.
-          Drift and offset checks only run when the vehicle is on ground and stationary.'
+          Drift and offset checks only run when the vehicle is on ground and stationary.
+          In the MAAV fork, vertical accuracy, drift, and speed failures remain
+          diagnostic when GNSS altitude fusion is disabled.'
       type: bitmask
       bit:
         0: Sat count (EKF2_REQ_NSATS)

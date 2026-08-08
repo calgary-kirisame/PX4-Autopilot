@@ -797,6 +797,7 @@ private:
 
 	// 2d & 3d velocity fusion
 	bool fuseHorizontalVelocity(estimator_aid_source2d_s &vel_aid_src);
+	bool fuseHorizontalVelocity(estimator_aid_source3d_s &vel_aid_src);
 	bool fuseVelocity(estimator_aid_source3d_s &vel_aid_src);
 
 #if defined(CONFIG_EKF2_TERRAIN)
