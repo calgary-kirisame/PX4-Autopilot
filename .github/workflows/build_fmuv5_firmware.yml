@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - maav-v1.18.0-beta1-port
+      - main
 
 env:
   FIRMWARE_PACKAGE: build/px4_fmu-v5_default/px4_fmu-v5_default.px4
